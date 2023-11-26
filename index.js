@@ -1,5 +1,6 @@
 const express = require("express");
 require('dotenv').config()
+const stripe = require("stripe")(process.env.PAYMENT_GATEWAY_SK);
 const cors = require("cors");
 const app = express();
 
@@ -25,6 +26,10 @@ async function run() {
         const usersCollection = client.db("TreeTreasuresDB").collection("users");
         const shopCollection = client.db("TreeTreasuresDB").collection("shop");
         const productCollection = client.db("TreeTreasuresDB").collection("product");
+        const paymentCollection = client.db("TreeTreasuresDB").collection("payments");
+        const checkOutCollection = client.db("TreeTreasuresDB").collection("checkOut");
+        const salesCollection = client.db("TreeTreasuresDB").collection("sales");
+
 
 
         // check manager
@@ -76,6 +81,7 @@ async function run() {
                     shopId: shopManager.shopId,
                     role: shopManager.role,
                     productLimit: 3,
+                    subscriptionType: "Free"
                 }
             }
 
@@ -90,12 +96,15 @@ async function run() {
             const updateDoc = {
                 $set: {
                     productLimit: newProductLimit.newProductLimit,
+                    subscriptionType: newProductLimit.subscriptionType,
                 }
             }
 
             const result = await usersCollection.updateOne(query, updateDoc, options)
             res.send(result)
         })
+
+
 
         //   shop related api
         app.post("/shopData", async (req, res) => {
@@ -116,16 +125,15 @@ async function run() {
             res.send(result)
         })
 
-        app.get("/products", async(req, res)=>{
+        app.get("/products/:email", async(req, res)=>{
             const email = req.params.email
-            const query = {shopOwnerEmail: email}
+            const query = {email: email}
             const result = await productCollection.find(query).toArray()
             res.send(result)
         })
 
         app.get("/singleProduct/:id", async(req, res)=>{
             const id = req.params.id
-            console.log(id);
             const query = {_id: new ObjectId(id)}
             const result = await productCollection.findOne(query)
             res.send(result)
@@ -159,6 +167,92 @@ async function run() {
             const result = await productCollection.deleteOne(query)
             res.send(result)
           })
+
+          app.patch('/product/:id', async(req, res)=>{
+            const id = req.params.id
+            const data = req.body
+            const query = { _id: new ObjectId(id) }
+            const options = { upsert: true };
+            const updateDoc = {
+                $set: {
+                    productQuantity: data?.productQuantity,
+                    saleCount: data?.saleCount
+                }
+            }
+
+            const result = await productCollection.updateOne(query, updateDoc, options)
+            res.send(result)
+          })
+// check out related api
+app.post("/product-check-out", async(req, res)=>{
+    const product = req.body
+    const result = await checkOutCollection.insertOne(product)
+    res.send(result)
+})
+
+app.get('/product-check-out/:email', async(req, res)=>{
+    const email = req.params.email
+    const query ={email: email}
+    const result = await checkOutCollection.find(query).toArray()
+    res.send(result)
+
+})
+
+
+
+// sell collection
+
+app.post('/sold-product', async(req, res)=>{
+    const product = req.body
+    const result = await salesCollection.insertOne(product)
+    res.send(result)
+
+})
+app.delete('/sold-product-delete/:id', async(req, res)=>{
+    const id = req.params.id
+    const query = { _id: new ObjectId(id) }
+    const result = await checkOutCollection.deleteOne(query)
+    res.send(result)
+
+    
+})
+
+
+// ................................
+// 
+// .................................
+ // payment intents er jonno post request korte hobe
+ app.post("/create-payment-intent", async (req, res) => {
+    const { price } = req.body;
+    const amount = parseInt(price * 100)
+
+    const paymentIntent = await stripe.paymentIntents.create({
+      amount: amount,
+      currency: "usd",
+      payment_method_types: ["card"],
+    });
+
+    res.send({
+      clientSecret: paymentIntent.client_secret,
+    });
+  })
+  
+      app.put("/payment", async(req, res)=>{
+        const item = req.body
+        const paymentResult = await paymentCollection.insertOne(item)
+  
+        
+        res.send(paymentResult)
+      })
+  
+  
+  
+      app.get('/paymentStatus/:email', async(req, res)=>{
+        const email = req.params.email
+        const query = {email: email}
+        const result = await paymentCollection.findOne(query)
+        res.send(result)
+      })
 
         console.log("Pinged your deployment. You successfully connected to MongoDB!");
     } finally { }
