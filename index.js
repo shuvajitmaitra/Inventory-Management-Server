@@ -9,7 +9,7 @@ const port = process.env.PORT || 5000;
 app.use(cors());
 app.use(express.json());
 
-const { MongoClient, ServerApiVersion, ObjectId } = require('mongodb');
+const { MongoClient, ServerApiVersion, ObjectId, Admin } = require('mongodb');
 const uri = `mongodb+srv://${process.env.DB_USER}:${process.env.DB_PASS}@cluster0.wyy6auz.mongodb.net/?retryWrites=true&w=majority`;
 
 // Create a MongoClient with a MongoClientOptions object to set the Stable API version
@@ -105,6 +105,8 @@ async function run() {
                     shopLogo: shopManager.shopLogo,
                     shopId: shopManager.shopId,
                     role: shopManager.role,
+                    shopInfo:shopManager.shopInfo,
+                    shopLocation:shopManager.shopLocation,
                     productLimit: 3,
                     subscriptionType: "Free"
                 }
@@ -113,6 +115,7 @@ async function run() {
             const result = await usersCollection.updateOne(query, updateDoc, options)
             res.send(result)
         })
+
         app.patch('/newProductLimit/:email', async (req, res) => {
             const email = req.params.email
             const newProductLimit = req.body
@@ -128,7 +131,44 @@ async function run() {
             const result = await usersCollection.updateOne(query, updateDoc, options)
             res.send(result)
         })
+        app.get("/all-shop", async(req, res) => {
+            const query = { role: 'manager' }
+            const result = await usersCollection.find(query).toArray()
+            res.send(result)
+        })
+        app.get("/admin-sell-summary", async(req, res) => {
+            const page = req.query.page
+            const query = { role: {$ne: "Admin"} }///
+            const adminQuery = {role: {$eq: "Admin"}}
+            const users = await usersCollection.find(query).toArray()///
+            const adminResult = await usersCollection.findOne(adminQuery)
+            const totalProduct = await productCollection.countDocuments()
+            const totalSale = await salesCollection.countDocuments()
+            const pageNumber = parseInt(page);
+            const perPage = 2;
+            const skip = perPage * pageNumber;
+            const totalUser = users.length
+            const  result = await usersCollection.find(query).skip(skip).limit(perPage).toArray()
 
+            res.send({result,totalUser,adminResult, totalProduct,totalSale })
+        })
+
+        app.patch("/system-admin-income", async(req, res)=>{
+            const price = parseInt(req.query.price)
+            const query = {role: "Admin"}
+            const result = await usersCollection.findOne(query)
+            const income = result?.income + price
+            const options = { upsert: true };
+            const updateDoc = {
+                $set: {
+                    income: income
+                }
+            }
+
+            const adminIncome  = await usersCollection.updateOne(query, updateDoc, options)
+            console.log(adminIncome);
+            res.send(adminIncome)
+        })
 
         // ---------------------------------------
         //   shop related api
@@ -269,14 +309,13 @@ async function run() {
                 0
             );
             const totalProfit = Math.floor(totalIncome - totalInvest);
+            //////////
             const totalProduct = productResult.length;
-            console.log(totalProduct);
             const pageNumber = parseInt(page);
-            console.log(pageNumber);
             const perPage = 5;
             const skip = perPage * pageNumber;
             
-            const  result = await salesCollection.find(query).skip(skip).limit(perPage).toArray()
+            const  result = await salesCollection.find(query).sort({ soldTime: -1 }).skip(skip).limit(perPage).toArray()
 
 
             res.send({ result, totalProduct, totalInvest, totalProfit })
