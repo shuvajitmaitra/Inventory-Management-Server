@@ -1,4 +1,5 @@
 const express = require("express");
+var jwt = require('jsonwebtoken');
 require('dotenv').config()
 const stripe = require("stripe")(process.env.PAYMENT_GATEWAY_SK);
 const cors = require("cors");
@@ -29,15 +30,51 @@ async function run() {
         const paymentCollection = client.db("TreeTreasuresDB").collection("payments");
         const checkOutCollection = client.db("TreeTreasuresDB").collection("checkOut");
         const salesCollection = client.db("TreeTreasuresDB").collection("sales");
-        // db.salesCollection.find().sort({ soldTime: -1 })
 
 
 
+// ---------------------------------------
+// jwt related api
+// ---------------------------------------
+
+
+ app.post('/jwt', async (req, res) => {
+    const userEmail = req.body;
+    const token = jwt.sign(userEmail, process.env.ACCESS_TOKEN_SECRET, { expiresIn: '1h' })
+    res.send({ token })
+  })
+
+//   verifyToken token.....................
+  const verifyToken = (req, res, next) => {
+    if (!req?.headers?.authorization) {
+      return res.status(401).send({ message: "Unauthorized Access" })
+    }
+    const token = req.headers.authorization.split(' ')[1]
+    jwt.verify(token, process.env.ACCESS_TOKEN_SECRET, (error, decoded) => {
+      if (error) {
+        return res.status(401).send({ message: "Unauthorized Access" })
+      }
+      req.decoded = decoded
+      next()
+    })
+  }
+
+   // verify Manager 
+   const verifyManager = async (req, res, next) => {
+    const email = req.decoded.email
+    const query = { email: email }
+    const user = await usersCollection.findOne(query)
+    isManager = user?.role === "manager"
+    if (!isManager) {
+      return res.status(403).send({ message: "Forbidden access" })
+    }
+    next()
+  }
 
 
         // check manager
         //  isUser
-        app.get("/users/:email", async (req, res) => {
+        app.get("/users/:email", verifyToken, async (req, res) => {
             const email = req.params.email
             // if(email !== res?.decoded?.email){
             //   return res.status(403).send({message: "Forbidden access"})
@@ -51,8 +88,8 @@ async function run() {
             res.send({ manager })
         })
 
-        //   isAdmin
-        app.get("/users/admin/:email", async (req, res) => {
+        //   Is admin
+        app.get("/users/admin/:email",verifyToken, async (req, res) => {
             const email = req.params.email
             // if(email !== res?.decoded?.email){
             //   return res.status(403).send({message: "Forbidden access"})
@@ -65,7 +102,7 @@ async function run() {
             }
             res.send({ admin })
         })
-        app.get("/manager/:email", async (req, res) => {
+        app.get("/manager/:email", verifyToken, async (req, res) => {
             const email = req.params.email
             // if(email !== res?.decoded?.email){
             //   return res.status(403).send({message: "Forbidden access"})
@@ -83,7 +120,7 @@ async function run() {
         // ---------------------------------------
 
 
-        app.post("/users", async (req, res) => {
+        app.post("/users",  async (req, res) => {
             const users = req.body
             const query = { email: users.email }
             const existingUser = await usersCollection.findOne(query)
@@ -94,7 +131,7 @@ async function run() {
             res.send(result)
         })
 
-        app.patch('/users/manager/:email', async (req, res) => {
+        app.patch('/users/manager/:email', verifyToken,  async (req, res) => {
             const email = req.params.email
             const shopManager = req.body
             const query = { email: email }
@@ -116,7 +153,7 @@ async function run() {
             res.send(result)
         })
 
-        app.patch('/newProductLimit/:email', async (req, res) => {
+        app.patch('/newProductLimit/:email', verifyToken,  async (req, res) => {
             const email = req.params.email
             const newProductLimit = req.body
             const query = { email: email }
@@ -131,12 +168,12 @@ async function run() {
             const result = await usersCollection.updateOne(query, updateDoc, options)
             res.send(result)
         })
-        app.get("/all-shop", async(req, res) => {
+        app.get("/all-shop", verifyToken,  async(req, res) => {
             const query = { role: 'manager' }
             const result = await usersCollection.find(query).toArray()
             res.send(result)
         })
-        app.get("/admin-sell-summary", async(req, res) => {
+        app.get("/admin-sell-summary", verifyToken,  async(req, res) => {
             const page = req.query.page
             const query = { role: {$ne: "Admin"} }///
             const adminQuery = {role: {$eq: "Admin"}}
@@ -144,16 +181,17 @@ async function run() {
             const adminResult = await usersCollection.findOne(adminQuery)
             const totalProduct = await productCollection.countDocuments()
             const totalSale = await salesCollection.countDocuments()
+            const payStats = await paymentCollection.find(query).toArray()
             const pageNumber = parseInt(page);
             const perPage = 2;
             const skip = perPage * pageNumber;
             const totalUser = users.length
             const  result = await usersCollection.find(query).skip(skip).limit(perPage).toArray()
 
-            res.send({result,totalUser,adminResult, totalProduct,totalSale })
+            res.send({result,totalUser,adminResult, totalProduct,totalSale, payStats })
         })
 
-        app.patch("/system-admin-income", async(req, res)=>{
+        app.patch("/system-admin-income", verifyToken,  async(req, res)=>{
             const price = parseInt(req.query.price)
             const query = {role: "Admin"}
             const result = await usersCollection.findOne(query)
@@ -166,7 +204,6 @@ async function run() {
             }
 
             const adminIncome  = await usersCollection.updateOne(query, updateDoc, options)
-            console.log(adminIncome);
             res.send(adminIncome)
         })
 
@@ -175,7 +212,7 @@ async function run() {
         // ---------------------------------------
 
 
-        app.post("/shopData", async (req, res) => {
+        app.post("/shopData", verifyToken,  async (req, res) => {
             const shopData = req.body
             const query = { shopOwnerEmail: shopData.shopOwnerEmail }
             const existingUser = await shopCollection.findOne(query)
@@ -193,26 +230,26 @@ async function run() {
         // ---------------------------------------
 
 
-        app.post("/products", async (req, res) => {
+        app.post("/products", verifyToken,  async (req, res) => {
             const products = req.body
             const result = await productCollection.insertOne(products)
             res.send(result)
         })
 
-        app.get("/products/:email", async (req, res) => {
+        app.get("/products/:email", verifyToken,  async (req, res) => {
             const email = req.params.email
             const query = { email: email }
             const result = await productCollection.find(query).toArray()
             res.send(result)
         })
 
-        app.get("/singleProduct/:id", async (req, res) => {
+        app.get("/singleProduct/:id", verifyToken,  async (req, res) => {
             const id = req.params.id
             const query = { _id: new ObjectId(id) }
             const result = await productCollection.findOne(query)
             res.send(result)
         })
-        app.patch('/productUpdate/:id', async (req, res) => {
+        app.patch('/productUpdate/:id', verifyToken,  async (req, res) => {
             const id = req.params.id
             const data = req.body
             const query = { _id: new ObjectId(id) }
@@ -235,14 +272,14 @@ async function run() {
             res.send(result)
         })
 
-        app.delete('/productDelete/:id', async (req, res) => {
+        app.delete('/productDelete/:id', verifyToken,  async (req, res) => {
             const id = req.params.id
             const query = { _id: new ObjectId(id) }
             const result = await productCollection.deleteOne(query)
             res.send(result)
         })
 
-        app.patch('/product/:id', async (req, res) => {
+        app.patch('/product/:id', verifyToken,  async (req, res) => {
             const id = req.params.id
             const data = req.body
             const query = { _id: new ObjectId(id) }
@@ -260,13 +297,13 @@ async function run() {
         // ---------------------------------------
         // check out related api
         // ---------------------------------------
-        app.post("/product-check-out", async (req, res) => {
+        app.post("/product-check-out", verifyToken,  async (req, res) => {
             const product = req.body
             const result = await checkOutCollection.insertOne(product)
             res.send(result)
         })
 
-        app.get('/product-check-out/:email', async (req, res) => {
+        app.get('/product-check-out/:email', verifyToken,  async (req, res) => {
             const email = req.params.email
             const query = { email: email }
             const result = await checkOutCollection.find(query).toArray()
@@ -274,7 +311,7 @@ async function run() {
 
         })
 
-        app.delete('/sold-product-delete/:id', async (req, res) => {
+        app.delete('/sold-product-delete/:id', verifyToken,  async (req, res) => {
             const id = req.params.id
             const query = { _id: new ObjectId(id) }
             const result = await checkOutCollection.deleteOne(query)
@@ -286,19 +323,19 @@ async function run() {
         // ---------------------------------------
         // sell collection 
         // ---------------------------------------
-        app.post('/sold-product', async (req, res) => {
+        app.post('/sold-product', verifyToken,  async (req, res) => {
             const product = req.body
             const result = await salesCollection.insertOne(product)
             res.send(result)
 
         })
 
-        app.get('/sell-summary/:email', async (req, res) => {
+        app.get('/sell-summary/:email', verifyToken,  async (req, res) => {
             const email = req.params.email
             const query = { email: email }
             const page = req.query.page
-            console.log(page);
 
+            const salesResult = await productCollection.find(query).toArray()
             const productResult = await salesCollection.find(query).toArray()
             const totalInvest = Math.floor(productResult?.reduce(
                 (total, item) => total + parseFloat(item?.makingCost),
@@ -318,7 +355,7 @@ async function run() {
             const  result = await salesCollection.find(query).sort({ soldTime: -1 }).skip(skip).limit(perPage).toArray()
 
 
-            res.send({ result, totalProduct, totalInvest, totalProfit })
+            res.send({ result,totalIncome,salesResult, totalProduct, totalInvest, totalProfit })
         })
 
         // ................................
@@ -350,7 +387,7 @@ async function run() {
 
 
 
-        app.get('/paymentStatus/:email', async (req, res) => {
+        app.get('/paymentStatus/:email', verifyToken,  async (req, res) => {
             const email = req.params.email
             const query = { email: email }
             const result = await paymentCollection.findOne(query)
