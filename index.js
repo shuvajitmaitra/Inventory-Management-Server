@@ -212,17 +212,28 @@ async function run() {
         // ---------------------------------------
 
 
-        app.post("/shopData", verifyToken,  async (req, res) => {
-            const shopData = req.body
-            const query = { shopOwnerEmail: shopData.shopOwnerEmail }
-            const existingUser = await shopCollection.findOne(query)
-            if (existingUser) {
-                return res.send({ message: "Shop already exist", insertedId: null })
+        app.post("/shopData", verifyToken, async (req, res) => {
+            const shopData = req.body;
+            const shopId = shopData.shopId;
+            const shopInfo = await shopCollection.findOne({shopId:shopId})
+            const shopOwnerEmail= shopInfo.email;
+        
+            if (shopInfo.shopId = shopId) {
+                    const subAdminInfo = { role: "shopAdmin", email: shopData.shopOwnerEmail };
+        
+                    const updateShopAdmin = await usersCollection.updateOne(
+                        { email : shopOwnerEmail },
+                        { $addToSet: { subAdmin: subAdminInfo } },
+                        { upsert: true }
+                    );
+        
+                    return {massge: 'sub admin added successfully',updateShopAdmin}
             }
-            const result = await shopCollection.insertOne(shopData)
-            res.send(result)
-        })
-
+        
+            const result = await shopCollection.insertOne(shopData);
+        
+            res.send(result);
+        });
 
 
         // ---------------------------------------
@@ -238,7 +249,12 @@ async function run() {
 
         app.get("/products/:email", verifyToken,  async (req, res) => {
             const email = req.params.email
-            const query = { email: email }
+            const shopId = await usersCollection.findOne({email: email})
+            console.log(shopId);
+            const productInfo=shopId.email
+
+            const query = { email: email, shopId: productInfo }
+            console.log(productInfo, query);
             const result = await productCollection.find(query).toArray()
             res.send(result)
         })
